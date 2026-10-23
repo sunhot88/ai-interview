@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { API_KEY_HEADER, openApiKeySettings, useApiKey } from "@/lib/apiKey";
 
 type ChatMessage = { role: "assistant" | "user"; content: string };
 
@@ -22,6 +23,7 @@ export default function InterviewPage() {
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  const apiKey = useApiKey();
 
   const answered = messages.filter((m) => m.role === "user").length;
 
@@ -36,10 +38,11 @@ export default function InterviewPage() {
     try {
       const res = await fetch("/api/interview", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", [API_KEY_HEADER]: apiKey },
         body: JSON.stringify({ jobDescription, messages: next, totalQuestions }),
       });
       const data = await res.json();
+      if (res.status === 401) openApiKeySettings();
       if (!res.ok) throw new Error(data.error ?? "發生錯誤");
 
       if (data.type === "report") {
@@ -56,6 +59,10 @@ export default function InterviewPage() {
 
   function start() {
     if (!jobDescription.trim()) return;
+    if (!apiKey) {
+      openApiKeySettings();
+      return;
+    }
     setStarted(true);
     setMessages([]);
     setReport(null);
@@ -90,6 +97,15 @@ export default function InterviewPage() {
             <p className="mb-3 font-mono text-xs uppercase tracking-widest text-accent">Step 1 / Setup</p>
             <h1 className="font-serif text-4xl font-black tracking-tight md:text-5xl">今天想面哪個職缺？</h1>
             <p className="mt-3 text-ink-soft">貼上職缺描述，面試官會針對它出題。</p>
+            {!apiKey && (
+              <p className="mt-3 text-sm text-accent">
+                尚未設定 OpenAI API key，請先
+                <button type="button" onClick={openApiKeySettings} className="mx-1 underline">
+                  設定 API Key
+                </button>
+                。
+              </p>
+            )}
           </div>
 
           <textarea

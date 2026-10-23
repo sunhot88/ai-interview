@@ -24,8 +24,6 @@ type Report = {
   perQuestion: { question: string; feedback: string; suggestedAnswer: string }[];
 };
 
-// 建立 OpenAI client。這個檔案只在伺服器端執行，所以 API key 不會洩漏到瀏覽器
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // ───────────── 工具函式 ─────────────
 
@@ -63,10 +61,17 @@ function isValidMessages(value: unknown): value is ChatMessage[] {
 // 此 API 是「無狀態」的：伺服器不記任何東西，
 // 整段對話紀錄由前端每次請求時完整帶上來。
 export async function POST(request: Request) {
-  // 沒設定 API key 就直接回 500，避免白白打 OpenAI 然後得到難懂的錯誤
-  if (!process.env.OPENAI_API_KEY) {
-    return Response.json({ error: "缺少 OPENAI_API_KEY" }, { status: 500 });
+  // BYOK：API key 由使用者自己提供（存在其瀏覽器 localStorage，用 header 帶上來），
+  // 不使用伺服器環境變數。沒帶就回 401，也不要把 key 寫進 log
+  const apiKey = request.headers.get("x-openai-api-key")?.trim();
+  if (!apiKey) {
+    return Response.json(
+      { error: "請先在右上角「API Key」設定你的 OpenAI API key" },
+      { status: 401 }
+    );
   }
+  // 每次請求用使用者自己的 key 建立 client
+  const client = new OpenAI({ apiKey });
 
   // 解析 request body；若不是合法 JSON 則 catch 成 null，後面會被欄位檢查擋下
   const body = await request.json().catch(() => null);
@@ -151,6 +156,13 @@ perQuestion 必須依序涵蓋面試中每一題（共 ${total} 題）。`,
       total, // 總題數
     });
   } catch (err) {
+    // key 無效或被拒絕：明確告知使用者重新設定
+    if (err instanceof OpenAI.AuthenticationError) {
+      return Response.json(
+        { error: "OpenAI API key 無效，請重新設定" },
+        { status: 401 }
+      );
+    }
     // OpenAI 呼叫失敗或 JSON.parse 失敗：記錄在伺服器 log，回給前端通用錯誤（502）
     console.error(err);
     return Response.json({ error: "OpenAI 呼叫失敗" }, { status: 502 });
